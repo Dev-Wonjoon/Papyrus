@@ -18,9 +18,12 @@ export default function TrafficCharts({ traffic, loading, error, samples, target
   const [selected, setSelected] = useState<number | null>(null);
   const [showFullWindow, setShowFullWindow] = useState(false);
   if (traffic === null) {
-    return <p className="mb-6 text-sm text-slate-600" role={error ? "alert" : "status"}>
-      {error ?? (loading ? "로그 유입량을 조회하고 있습니다." : "유입량을 확인할 수 없습니다.")}
-    </p>;
+    return <section className="console-panel" aria-labelledby="traffic-heading">
+      <h2 id="traffic-heading" className="text-lg font-semibold">로그 유입량</h2>
+      <p className="mt-2 text-sm text-slate-600" role={error ? "alert" : "status"}>
+        {error ?? (loading ? "로그 유입량을 조회하고 있습니다." : "유입량을 확인할 수 없습니다.")}
+      </p>
+    </section>;
   }
 
   const end = traffic.window_end_ms;
@@ -50,63 +53,69 @@ export default function TrafficCharts({ traffic, loading, error, samples, target
   const status = error ? "조회 지연" : rate > 0 ? "유입 중" : backlog > 0 ? "입력 없음 · 대기열 처리 중" : "입력 없음";
 
   return (
-    <section className="mb-8 space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6" aria-labelledby="traffic-heading">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 id="traffic-heading" className="text-xl font-bold">중앙 서버 전체 로그 유입량</h3>
-          <p className="mt-1 text-sm text-slate-600">
-            최근 {showFullWindow ? "15분" : "1분"} · 완료된 {step / 1000}초 구간 · 건/초
+    <div className="console-panel">
+      <div className="operational-chart-grid">
+        <section className="flex min-w-0 flex-col gap-3" aria-labelledby="traffic-heading">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 id="traffic-heading" className="text-lg font-semibold">로그 유입량</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                최근 {showFullWindow ? "15분" : "1분"} · 완료된 {step / 1000}초 구간 · 건/초
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" aria-pressed={showFullWindow}
+                className="workspace-action aria-pressed:bg-indigo-50"
+                onClick={() => { setShowFullWindow(!showFullWindow); setSelected(null); }}>
+                15분 보기
+              </button>
+              <span className={error || backlog > 0 && rate === 0
+                ? "rounded-lg bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-900"
+                : "rounded-lg bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-900"}>{status}</span>
+            </div>
+          </div>
+
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm tabular-nums sm:grid-cols-3">
+            <div><dt className="text-slate-600">최근 구간</dt><dd className="font-semibold">{number.format(rate)}건/초</dd></div>
+            <div><dt className="text-slate-600">최고 유입률</dt><dd className="font-semibold">{peak
+              ? number.format(peak.value) + "건/초 · " + formatChartTime(peak.at - step / 2) : "유입 없음"}</dd></div>
+            <div><dt className="text-slate-600">저장 대기열</dt><dd className="font-semibold">{number.format(backlog)}건</dd>
+              <dd className="text-xs text-slate-600">대기 {number.format(traffic.queued_count)} · 처리 중 {number.format(traffic.processing_count)} · 재시도 {number.format(traffic.retry_wait_count)}</dd></div>
+          </dl>
+
+          {error && <p role="alert" className="text-sm text-amber-900">{error} 마지막 집계를 표시합니다.</p>}
+
+          <div className="mt-auto">
+            <TimeSeriesChart start={start} end={end} maximum={maximum} unit="건/초"
+              series={[{ label: "중앙 수신", color: "#4338ca", points }]}
+              selected={activeTime} onSelect={setSelected} peak={peak} />
+          </div>
+        </section>
+
+        <section className="operational-resource-chart flex min-w-0 flex-col gap-3" aria-labelledby="resource-heading">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="resource-heading" className="text-lg font-semibold break-words">{target} 자원 사용률</h2>
+            {canReset && <button type="button" className="workspace-action"
+              onClick={onReset}>중앙 서버 추이</button>}
+          </div>
+          <p className="mt-1 text-xs text-slate-600">
+            {visibleSamples.length === 0 ? "이 시간 범위에 수집된 표본이 없습니다."
+              : "이 페이지를 연 동안의 표본입니다. 수집이 끊긴 구간은 선이 비어 있습니다."}
           </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" aria-pressed={showFullWindow}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:bg-slate-50 aria-pressed:bg-slate-100"
-            onClick={() => { setShowFullWindow(!showFullWindow); setSelected(null); }}>
-            15분 보기
-          </button>
-          <span className={error || backlog > 0 && rate === 0
-            ? "rounded-lg bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-900"
-            : "rounded-lg bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-900"}>{status}</span>
-        </div>
+          <div className="mt-auto"><TimeSeriesChart start={start} end={end} maximum={100} unit="%"
+            series={resourceLines.map((line) => ({ label: line.label, color: line.color,
+              points: visibleSamples.map(({ at, metrics }) => {
+                const value = line.value(metrics);
+                return { at, value: value == null ? null : value * 100 };
+              }),
+            }))}
+            selected={activeTime} onSelect={setSelected} /></div>
+        </section>
       </div>
 
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm tabular-nums sm:grid-cols-3">
-        <div><dt className="text-slate-600">최근 구간</dt><dd className="font-semibold">{number.format(rate)}건/초</dd></div>
-        <div><dt className="text-slate-600">최고 유입률</dt><dd className="font-semibold">{peak
-          ? number.format(peak.value) + "건/초 · " + formatChartTime(peak.at - step / 2) : "유입 없음"}</dd></div>
-        <div><dt className="text-slate-600">저장 대기열</dt><dd className="font-semibold">{number.format(backlog)}건</dd>
-          <dd className="text-xs text-slate-600">대기 {number.format(traffic.queued_count)} · 처리 중 {number.format(traffic.processing_count)} · 재시도 {number.format(traffic.retry_wait_count)}</dd></div>
-      </dl>
-
-      {error && <p role="alert" className="text-sm text-amber-900">{error} 마지막 집계를 표시합니다.</p>}
-
-      <TimeSeriesChart start={start} end={end} maximum={maximum} unit="건/초"
-        series={[{ label: "중앙 수신", color: "#1d4ed8", points }]}
-        selected={activeTime} onSelect={setSelected} peak={peak} />
-
-      <div className="border-t border-slate-200 pt-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="break-all font-semibold">{target} 자원 사용률 (%)</h3>
-          {canReset && <button type="button" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-            onClick={onReset}>중앙 서버 추이</button>}
-        </div>
-        <p className="mt-1 text-xs text-slate-600">
-          {visibleSamples.length === 0 ? "이 시간 범위에 수집된 표본이 없습니다."
-            : "이 페이지를 연 동안의 표본입니다. 수집이 끊긴 구간은 선이 비어 있습니다."}
-        </p>
-        <TimeSeriesChart start={start} end={end} maximum={100} unit="%"
-          series={resourceLines.map((line) => ({ label: line.label, color: line.color,
-            points: visibleSamples.map(({ at, metrics }) => {
-              const value = line.value(metrics);
-              return { at, value: value == null ? null : value * 100 };
-            }),
-          }))}
-          selected={activeTime} onSelect={setSelected} />
-      </div>
-
-      <label className="block text-xs text-slate-600">
+      <label className="mt-4 block border-t border-slate-200 pt-3 text-xs text-slate-600">
         시간 선택
-        <input type="range" className="mt-1 block w-full accent-blue-700"
+        <input type="range" className="mt-1 block w-full accent-indigo-700"
           min={0} max={points.length - 1} value={index ?? points.length - 1}
           aria-valuetext={formatChartTime((inspected ?? points.at(-1)!).at - step / 2)}
           onChange={(event) => setSelected(start + (Number(event.currentTarget.value) + .5) * step)} />
@@ -117,6 +126,6 @@ export default function TrafficCharts({ traffic, loading, error, samples, target
         {nearbySample ? resourceLines.map((line) =>
           " · " + line.label + " " + formatPercent(line.value(nearbySample.metrics))) : " · 자원 표본 없음"}
       </p>}
-    </section>
+    </div>
   );
 }

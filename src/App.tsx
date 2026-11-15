@@ -63,17 +63,16 @@ export default function App() {
         </nav>
       </aside>
       <main id="workspace-content" className="workspace-main" tabIndex={-1}>
-        <header className="workspace-heading">
+        {currentPage?.path !== "/status" && <header className="workspace-heading">
           <h1>{currentPage?.label ?? "페이지를 찾을 수 없습니다."}</h1>
           {showOverview && <a className="workspace-action" href="#demo">시연으로 이동 <span aria-hidden="true">↓</span></a>}
-        </header>
+        </header>}
         {showStatus && (
-          <div className="space-y-6">
-            <SystemStatusPage onSelectRun={viewRun} demoRunId={demoRunId} />
+          <SystemStatusPage onSelectRun={viewRun} demoRunId={demoRunId} overviewMode={showOverview} demo={
             <div id="demo" className="scroll-mt-4" hidden={!showOverview}>
               <DemoScenarioPanel onSelectRun={viewRun} onRunChange={setDemoRunId} />
             </div>
-          </div>
+          } />
         )}
         {currentPage?.path === "/logs" && (
           <LogViewerPage key={location.search} search={location.search}

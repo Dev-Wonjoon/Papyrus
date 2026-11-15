@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { fetchSystemStatus } from "../api/system";
 import type { SystemStatus } from "../api/system";
 import AgentStatusPanel from "../components/AgentStatusPanel";
@@ -14,7 +15,7 @@ type MetricsStatus = SystemStatus["metrics_status"];
 type MetricCardProps = {
   title: string;
   value: string;
-  description: string;
+  description?: string;
 };
 
 const statusLabels: Record<MetricsStatus, string> = {
@@ -48,7 +49,7 @@ function formatDuration(value: number | null): string {
 
 function MetricCard({ title, value, description }: MetricCardProps) {
   return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4">
+    <div className="min-w-0 p-3 sm:p-4">
       <dt className="text-sm font-medium text-slate-600">{title}</dt>
 
       <dd className="mt-2">
@@ -56,9 +57,9 @@ function MetricCard({ title, value, description }: MetricCardProps) {
           {value}
         </span>
 
-        <span className="mt-1 block text-xs leading-5 text-slate-600">
+        {description && <span className="mt-1 block text-xs leading-5 text-slate-600">
           {description}
-        </span>
+        </span>}
       </dd>
     </div>
   );
@@ -74,9 +75,11 @@ function StatusBadge({ status }: { status: MetricsStatus }) {
   );
 }
 
-export default function SystemStatusPage({ onSelectRun, demoRunId }: {
+export default function SystemStatusPage({ onSelectRun, demoRunId, overviewMode, demo }: {
   onSelectRun: (runId: string) => void;
   demoRunId: string | null;
+  overviewMode: boolean;
+  demo: ReactNode;
 }) {
   const [now, setNow] = useState(() => performance.now());
   const [centralHistory, setCentralHistory] = useState<ResourceSample[]>([]);
@@ -137,123 +140,145 @@ export default function SystemStatusPage({ onSelectRun, demoRunId }: {
         : "FRESH";
   }
 
+  const refreshing = isFetching || traffic.isFetching || overview.isFetching;
+  const agentSnapshot = overview.data;
+  const agentElapsed = overview.receivedAt === null ? 0 : Math.max(0, now - overview.receivedAt);
+  const reporting = agentSnapshot?.agents.filter((agent) =>
+    agent.status === "ONLINE" && agent.age_ms + agentElapsed < agentSnapshot.stale_after_ms).length;
+
   return (
     <>
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="system-status" className="text-lg font-semibold tracking-tight">중앙 서버</h2>
-
+      {!overviewMode && <header className="workspace-heading">
+        <h1>시스템 상태</h1>
         <button
           type="button"
-          disabled={isFetching || traffic.isFetching || overview.isFetching}
+          disabled={refreshing}
           onClick={() => { refresh(); traffic.refresh(); overview.refresh(); }}
           className="workspace-action disabled:cursor-wait disabled:opacity-50"
         >
-          {isFetching || traffic.isFetching || overview.isFetching ? "조회 중…" : "새로고침"}
+          {refreshing ? "조회 중…" : "새로고침"}
         </button>
-      </header>
+      </header>}
 
-      {isLoading && (
-        <div
-          role="status"
-          className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600"
-        >
-          시스템 상태를 조회하고 있습니다.
+      {overviewMode && <dl className="overview-status">
+        <div>
+          <dt>중앙 서버</dt>
+          <dd>{data !== null && <StatusBadge status={freshness} />}
+            {error !== null ? (data === null ? "조회 실패" : " · 조회 지연")
+              : data === null && "조회 중…"}</dd>
         </div>
-      )}
-
-      {error !== null && (
-        <div
-          role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm leading-6 text-red-800"
-        >
-          <p className="font-semibold">시스템 상태 조회 실패</p>
-          <p className="mt-1">{error}</p>
-          {data !== null && (
-            <p className="mt-1">
-              마지막 성공 데이터를 표시하고 있습니다. 자동으로 다시
-              조회합니다.
-            </p>
-          )}
+        <div>
+          <dt>에이전트</dt>
+          <dd>{agentSnapshot === null ? (overview.error ? "조회 실패" : "조회 중…")
+            : `정상 보고 ${reporting} / ${agentSnapshot.agents.length}개${overview.error ? " · 조회 지연" : ""}`}</dd>
         </div>
-      )}
+      </dl>}
 
-      {data !== null && (
-        <section aria-labelledby="system-status">
-          <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
-            <StatusBadge status={freshness} />
+      {demo}
 
-            <span>
-              측정 시각:{" "}
-              {data.sampled_at_ms === null
-                ? "아직 표본 없음"
-                : new Date(data.sampled_at_ms).toLocaleString("ko-KR")}
-            </span>
-
-            <span>
-              표본 경과:{" "}
-              {sampleAge === null
-                ? "확인 불가"
-                : `${Math.floor(sampleAge / 1000)}초`}
-            </span>
+      {!overviewMode && <section className="mb-8" aria-labelledby="system-status">
+        <h2 id="system-status" className="mb-3 text-lg font-semibold tracking-tight">중앙 서버</h2>
+        {isLoading && (
+          <div
+            role="status"
+            className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600"
+          >
+            시스템 상태를 조회하고 있습니다.
           </div>
+        )}
 
-          {freshness === "STALE" && (
-            <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-800">
-              오래된 측정값입니다. 새로고침으로 현재 상태를 확인해 주세요.
+        {error !== null && (
+          <div
+            role="alert"
+            className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm leading-6 text-red-800"
+          >
+            <p className="font-semibold">시스템 상태 조회 실패</p>
+            <p className="mt-1">{error}</p>
+            {data !== null && (
+              <p className="mt-1">
+                마지막 성공 데이터를 표시하고 있습니다. 자동으로 다시
+                조회합니다.
+              </p>
+            )}
+          </div>
+        )}
+
+        {data !== null && (
+          <>
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
+              <StatusBadge status={freshness} />
+
+              <span>
+                측정 시각:{" "}
+                {data.sampled_at_ms === null
+                  ? "아직 표본 없음"
+                  : new Date(data.sampled_at_ms).toLocaleString("ko-KR")}
+              </span>
+
+              <span>
+                표본 경과:{" "}
+                {sampleAge === null
+                  ? "확인 불가"
+                  : `${Math.floor(sampleAge / 1000)}초`}
+              </span>
+            </div>
+
+            {freshness === "STALE" && (
+              <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-800">
+                오래된 측정값입니다. 새로고침으로 현재 상태를 확인해 주세요.
+              </p>
+            )}
+
+            <dl className="status-metrics">
+              <MetricCard
+                title="중앙 JVM CPU"
+                value={formatPercent(data.process_cpu_load)}
+              />
+
+              <MetricCard
+                title="호스트 CPU"
+                value={formatPercent(data.system_cpu_load)}
+              />
+
+              <MetricCard
+                title="호스트 메모리"
+                value={formatPercent(fraction(data.host_memory_used_bytes, data.host_memory_total_bytes))}
+                description={`${formatMemory(data.host_memory_used_bytes ?? null)} / ${formatMemory(data.host_memory_total_bytes ?? null)}`}
+              />
+
+              <MetricCard
+                title="JVM 힙"
+                value={formatPercent(fraction(data.heap_used_bytes, data.heap_max_bytes))}
+                description={`${formatMemory(data.heap_used_bytes)} / ${formatMemory(data.heap_max_bytes)}`}
+              />
+
+              <MetricCard
+                title="JVM 가동 시간"
+                value={formatDuration(data.uptime_ms)}
+              />
+            </dl>
+
+            <p className="mt-5 text-xs leading-6 text-slate-500">
+              각 조회가 끝나면 5초 후 자동으로 다시 조회합니다. 측정 불가는 해당
+              지표를 아직 수집하지 못했거나 실행 환경에서 지원하지 않는
+              상태입니다.
             </p>
-          )}
+          </>
+        )}
+      </section>}
 
-          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            <MetricCard
-              title="중앙 JVM CPU"
-              value={formatPercent(data.process_cpu_load)}
-              description="중앙 서버 Java 프로세스의 CPU 사용률"
-            />
-
-            <MetricCard
-              title="호스트 CPU"
-              value={formatPercent(data.system_cpu_load)}
-              description="운영체제가 보고한 전체 CPU 사용률"
-            />
-
-            <MetricCard
-              title="호스트 메모리"
-              value={formatPercent(fraction(data.host_memory_used_bytes, data.host_memory_total_bytes))}
-              description={`${formatMemory(data.host_memory_used_bytes ?? null)} / ${formatMemory(data.host_memory_total_bytes ?? null)}`}
-            />
-
-            <MetricCard
-              title="JVM 힙"
-              value={formatPercent(fraction(data.heap_used_bytes, data.heap_max_bytes))}
-              description={`${formatMemory(data.heap_used_bytes)} / ${formatMemory(data.heap_max_bytes)}`}
-            />
-
-            <MetricCard
-              title="JVM 가동 시간"
-              value={formatDuration(data.uptime_ms)}
-              description="표본 수집 시점 기준"
-            />
-          </dl>
-
-          <p className="mt-5 text-xs leading-6 text-slate-500">
-            각 조회가 끝나면 5초 후 자동으로 다시 조회합니다. 측정 불가는 해당
-            지표를 아직 수집하지 못했거나 실행 환경에서 지원하지 않는
-            상태입니다.
-          </p>
-        </section>
-      )}
-
-      <AgentStatusPanel overview={overview} onSelectRun={onSelectRun} demoRunId={demoRunId}
+      {!overviewMode && <AgentStatusPanel overview={overview} onSelectRun={onSelectRun} demoRunId={demoRunId}
         selectedKey={selectedSamples ? selected?.key ?? null : null}
         onSelectMetrics={(agent) => {
           setSelected({ key: agentKey(agent), name: "에이전트 " + agent.heartbeat.source_id });
           document.getElementById("operational-charts")?.scrollIntoView();
-        }} />
+        }} />}
 
       <div id="operational-charts" className="scroll-mt-4">
         <TrafficCharts traffic={traffic.data} error={traffic.error} loading={traffic.isLoading}
-          samples={selectedSamples ?? centralHistory} target={selectedSamples && selected ? selected.name : "중앙 서버"}
-          canReset={Boolean(selectedSamples)} onReset={() => setSelected(null)} />
+          samples={(!overviewMode && selectedSamples) || centralHistory}
+          target={!overviewMode && selectedSamples && selected ? selected.name : "중앙 서버"}
+          canReset={!overviewMode && Boolean(selectedSamples)} onReset={() => setSelected(null)} />
       </div>
     </>
   );

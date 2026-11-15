@@ -14,7 +14,6 @@ const filters = [
   { name: "source_id", label: "소스 ID" },
   { name: "mode", label: "파싱 위치", options: [["CENTRAL", "중앙"], ["AGENT", "에이전트"]] },
   { name: "parse_status", label: "파싱 상태", options: [["SUCCESS", "성공"], ["FAILED", "실패"]] },
-  { name: "q", label: "원문 검색" },
 ] as const;
 
 export default function LogViewerPage({ search, onSearch }: {
@@ -23,22 +22,22 @@ export default function LogViewerPage({ search, onSearch }: {
 }) {
   const params = new URLSearchParams(search);
   const runId = params.get("run_id")?.trim() ?? "";
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const refresh = useRef<(() => void) | null>(null);
   const mode = params.get("mode");
   const parseStatus = params.get("parse_status");
+  const extraCount = filters.filter(({ name }) => params.get(name)?.trim()).length;
 
   return (
     <>
-      <form aria-label="로그 검색" className="log-filters rounded-lg border border-slate-200 bg-white p-4" onSubmit={(event) => {
+      <form aria-label="로그 검색" className="log-filters" onSubmit={(event) => {
         event.preventDefault();
         const fields = new FormData(event.currentTarget);
         const next = new URLSearchParams();
-        for (const { name } of filters) {
+        for (const name of ["run_id", ...filters.map((filter) => filter.name), "q"]) {
           const value = String(fields.get(name) ?? "").trim();
           if (value) next.set(name, value);
         }
-        const selectedRun = String(fields.get("run_id") ?? "").trim();
-        if (selectedRun) next.set("run_id", selectedRun);
         next.sort();
         params.sort();
         if (next.toString() === params.toString()) {
@@ -48,22 +47,31 @@ export default function LogViewerPage({ search, onSearch }: {
         }
       }}>
         <RunIdField initialValue={runId} />
-        {filters.map((filter) => (
-          <label key={filter.name} className="min-w-0 text-sm font-medium text-slate-700">
-            {filter.label}
-            {"options" in filter ? (
-              <select name={filter.name} className={fieldClass} defaultValue={params.get(filter.name) ?? ""}>
-                <option value="">전체</option>
-                {filter.options.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-              </select>
-            ) : (
-              <input name={filter.name}
-                maxLength={filter.name === "q" ? 512 : undefined}
-                className={fieldClass} defaultValue={params.get(filter.name) ?? ""} />
-            )}
-          </label>
-        ))}
-        <button type="submit" className="h-9 justify-self-start rounded-md bg-indigo-700 px-4 text-sm font-semibold text-white hover:bg-indigo-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">검색</button>
+        <label className="log-raw-filter min-w-0 text-sm font-medium text-slate-700">
+          원문 검색
+          <input name="q" maxLength={512} className={fieldClass} defaultValue={params.get("q") ?? ""} />
+        </label>
+        <button type="button" className="workspace-action log-filter-toggle"
+          aria-expanded={filtersOpen} aria-controls="log-extra-filters"
+          onClick={() => setFiltersOpen(!filtersOpen)}>
+          추가 필터{extraCount > 0 && ` (${extraCount})`}
+        </button>
+        <div id="log-extra-filters" className="log-extra-filters" data-open={filtersOpen || undefined}>
+          {filters.map((filter) => (
+            <label key={filter.name} className="min-w-0 text-sm font-medium text-slate-700">
+              {filter.label}
+              {"options" in filter ? (
+                <select name={filter.name} className={fieldClass} defaultValue={params.get(filter.name) ?? ""}>
+                  <option value="">전체</option>
+                  {filter.options.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                </select>
+              ) : (
+                <input name={filter.name} className={fieldClass} defaultValue={params.get(filter.name) ?? ""} />
+              )}
+            </label>
+          ))}
+        </div>
+        <button type="submit" className="log-submit workspace-action workspace-primary-action">검색</button>
       </form>
       <LogResults runId={runId} refresh={refresh}
         sourceId={params.get("source_id")?.trim() ?? ""}
@@ -176,6 +184,7 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
   const [error, setError] = useState<{ message: string; expired: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
   const list = useRef<HTMLDivElement>(null);
+  const detailOrigin = useRef<{ row: HTMLButtonElement; listTop: number; pageTop: number } | null>(null);
   const controller = useRef<AbortController | null>(null);
   const pit = useRef<string | null>(null);
   const nearChunk = useRef(0);
@@ -191,6 +200,7 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
     setLoading(false);
     setNewLogs(false);
     setDetail(null);
+    detailOrigin.current = null;
   }, []);
   useEffect(() => {
     refresh.current = onRefresh;
@@ -317,15 +327,31 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
     }
   }, [search, topRow, bottomRow, start, end, hasMore, loading, error, load, newLogs, onRefresh]);
 
+  function closeDetail() {
+    const origin = detailOrigin.current;
+    detailOrigin.current = null;
+    setDetail(null);
+    if (!origin) return;
+    requestAnimationFrame(() => {
+      if (list.current) list.current.scrollTop = origin.listTop;
+      (origin.row.isConnected ? origin.row : list.current)?.focus({ preventScroll: true });
+      window.scrollTo(0, origin.pageTop);
+    });
+  }
+
   return (
-    <section className="mt-6" aria-label="로그 검색 결과">
-      <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
+    <section className="mt-4" aria-label="로그 검색 결과">
+      <header className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-slate-700" role="status">
-          {search.total === null ? "검색 중" : "총 " + search.total.toLocaleString("ko-KR") + "건"}
+          {search.total === null ? (error ? "검색 실패" : "검색 중")
+            : "총 " + search.total.toLocaleString("ko-KR") + "건"}
           {loading && search.total !== null && " · 불러오는 중"}
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-slate-600">{live ? "실시간 연결됨" : "실시간 연결 대기"}</span>
+          <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+            <span aria-hidden="true" className={`size-1.5 rounded-full ${live ? "bg-emerald-600" : "bg-slate-400"}`} />
+            {live ? "실시간 연결됨" : "실시간 연결 대기"}
+          </span>
           <button type="button" className={buttonClass} onClick={onRefresh}>
             {newLogs ? "새 로그 보기" : "검색 새로고침"}
           </button>
@@ -336,8 +362,10 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
         {!error.expired && <button type="button" className={buttonClass} onClick={() => setError(null)}>다시 시도</button>}
       </div>}
       <div className="log-results-body" data-detail={detail !== null || undefined}>
-        <div ref={list} aria-label="로그 목록" tabIndex={0}
-          className="h-[min(60vh,42rem)] min-h-48 overflow-auto rounded-xl border border-slate-200 bg-white"
+        <div ref={list} role="region" aria-label="로그 목록" tabIndex={0}
+          className="log-list"
+          data-compact={search.discovered === 0 || undefined}
+          data-unavailable={error !== null && search.discovered === 0 || undefined}
           onScroll={(event) => setViewport({
             top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight,
           })}>
@@ -349,13 +377,20 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
               return (
                 <div key={index} style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
                   className="absolute inset-x-0 border-b border-slate-100">
-                  {item ? <button type="button" onClick={() => setDetail({ document_id: item.document_id, run_id: item.run_id })}
-                      className="flex size-full min-w-0 flex-col justify-center gap-1 px-4 text-left hover:bg-indigo-50 aria-pressed:bg-indigo-50"
-                      aria-pressed={detail?.document_id === item.document_id}>
-                      <span className="flex w-full items-center gap-2 text-xs text-slate-600">
-                        <span className="font-semibold tabular-nums">{index + 1}.</span>
-                        {!runId && <span className="truncate" title={item.run_id}>{item.run_id}</span>}
-                        <span className="truncate">{item.source_id}</span>
+                  {item ? <button type="button" onClick={(event) => {
+                        detailOrigin.current = {
+                          row: event.currentTarget,
+                          listTop: list.current?.scrollTop ?? 0,
+                          pageTop: window.scrollY,
+                        };
+                        setDetail({ document_id: item.document_id, run_id: item.run_id });
+                      }}
+                      className="log-row"
+                      aria-pressed={detail?.document_id === item.document_id && detail?.run_id === item.run_id}>
+                      <span className="log-row-meta" data-all-runs={!runId || undefined}>
+                        <span className="text-slate-500 tabular-nums">{index + 1}</span>
+                        {!runId && <span className="truncate font-mono" title={item.run_id}>{item.run_id}</span>}
+                        <span className="truncate" title={item.source_id}>{item.source_id}</span>
                         <span className="shrink-0">{item.mode === "CENTRAL" ? "중앙 파싱" : "에이전트 파싱"}</span>
                         <span className={item.parse_status === "FAILED" ? "shrink-0 text-red-700" : "shrink-0 text-emerald-700"}>
                           {item.parse_status === "FAILED" ? "실패" : "성공"}
@@ -378,9 +413,9 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
             </button>
           )}
         </div>
-        {detail && <div className="min-w-0 [&>section]:mt-0">
-          <LogDetailPanel key={detail.document_id} runId={detail.run_id} documentId={detail.document_id}
-            onClose={() => setDetail(null)} />
+        {detail && <div className="log-detail">
+          <LogDetailPanel key={JSON.stringify([detail.run_id, detail.document_id])}
+            runId={detail.run_id} documentId={detail.document_id} onClose={closeDetail} />
         </div>}
       </div>
     </section>

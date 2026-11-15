@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { fetchAgentControl, fetchAgentOverview } from "../api/agents";
 import type {
   AgentCommandPhase,
@@ -9,7 +9,7 @@ import type {
 import { usePolling } from "../hooks/usePolling";
 import { agentKey, formatPercent, fraction } from "../pages/operationalMetrics";
 
-type AgentCardProps = {
+type AgentRowProps = {
   agent: AgentStatus;
   staleAfterMs: number;
   elapsedMs: number;
@@ -118,7 +118,7 @@ function AgentControlDetails({ heartbeat }: { heartbeat: AgentHeartbeat }) {
   );
 }
 
-function AgentCard({
+function AgentRow({
   agent,
   staleAfterMs,
   elapsedMs,
@@ -126,7 +126,9 @@ function AgentCard({
   onSelectMetrics,
   selected,
   isDemoAgent,
-}: AgentCardProps) {
+}: AgentRowProps) {
+  const [expanded, setExpanded] = useState(false);
+  const detailId = useId();
   const heartbeat = agent.heartbeat;
   const ageMs = agent.age_ms + elapsedMs;
 
@@ -137,10 +139,12 @@ function AgentCard({
     ? "bg-amber-50 text-amber-800 ring-amber-200"
     : "bg-emerald-50 text-emerald-700 ring-emerald-200";
 
+  const processCpu = formatPercent(heartbeat.process_cpu_load);
+  const hostMemory = formatPercent(fraction(heartbeat.host_memory_used_bytes, heartbeat.host_memory_total_bytes));
   const metrics = [
     {
       title: "프로세스 CPU",
-      value: formatPercent(heartbeat.process_cpu_load),
+      value: processCpu,
     },
     {
       title: "호스트 CPU",
@@ -148,7 +152,7 @@ function AgentCard({
     },
     {
       title: "호스트 메모리",
-      value: formatPercent(fraction(heartbeat.host_memory_used_bytes, heartbeat.host_memory_total_bytes)),
+      value: hostMemory,
     },
     {
       title: "JVM 힙",
@@ -165,82 +169,57 @@ function AgentCard({
     },
   ];
 
+  const age = Math.floor(ageMs / 1000).toLocaleString("ko-KR") + "초 전";
+  const received = new Date(agent.last_received_at_ms);
   return (
-    <article className={"rounded-2xl border bg-white p-5 shadow-sm sm:p-6 "
-      + (isDemoAgent ? "border-indigo-300" : "border-slate-200")}>
-      {onSelectRun !== undefined && (
-        <button
-          type="button"
-          onClick={() => onSelectRun(heartbeat.run_id)}
-          className="rounded-lg border border-slate-300 px-3 py-1 text-xs font-semibold hover:bg-slate-100"
-        >
-          이 실행 조회
-        </button>
-      )}
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h3 className="break-all text-lg font-semibold text-slate-900">
-            {heartbeat.source_id}
-          </h3>
-
-          <p className="mt-1 break-all text-sm text-slate-500">
-            실행 ID: {heartbeat.run_id}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {isDemoAgent && (
-            <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-800">
-              이번 시연
-            </span>
-          )}
-          {onSelectMetrics && <button type="button" aria-pressed={selected}
-            onClick={() => onSelectMetrics(agent)}
-            className="rounded-lg border border-indigo-200 px-3 py-1 text-xs font-semibold text-indigo-800 hover:bg-indigo-50 aria-pressed:bg-indigo-100">
-            자원 추이 보기
-          </button>}
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset ${statusStyle}`}
-          >
-            {stale ? "STALE · 보고 지연" : "ONLINE · 정상 보고"}
+    <>
+      <tr role="row" className="agent-row" data-highlight={selected || isDemoAgent || undefined}>
+        <th role="rowheader" scope="row" className="agent-source">
+          <span className="font-semibold break-all">{heartbeat.source_id}</span>
+          {isDemoAgent && <span className="ml-2 text-xs font-semibold text-indigo-700">이번 시연</span>}
+        </th>
+        <td role="cell">
+          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${statusStyle}`}>
+            {stale ? "보고 지연" : "정상 보고"}
           </span>
-        </div>
-      </header>
-
-      <AgentControlDetails heartbeat={heartbeat} />
-
-      <dl className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-6">
-        {metrics.map((metric) => (
-          <div key={metric.title} className="min-w-0">
-            <dt className="text-xs font-medium text-slate-500">
-              {metric.title}
-            </dt>
-
-            <dd className="mt-2 text-sm leading-6 font-semibold break-words text-slate-900 tabular-nums">
-              {metric.value}
-            </dd>
-            {metric.details && <dd className="text-xs text-slate-600">{metric.details}</dd>}
+        </td>
+        <td role="cell"><span className="agent-mobile-label">파싱 위치</span>
+          {heartbeat.applied_mode === "CENTRAL" ? "중앙" : "에이전트"}</td>
+        <td role="cell"><span className="agent-mobile-label">프로세스 CPU</span>{processCpu}</td>
+        <td role="cell"><span className="agent-mobile-label">호스트 메모리</span>{hostMemory}</td>
+        <td role="cell"><span className="agent-mobile-label">최근 수신</span>
+          <time dateTime={received.toISOString()} title={received.toLocaleString("ko-KR")}>{age}</time></td>
+        <td role="cell" className="agent-controls">
+          <button type="button" className="workspace-text-action" aria-expanded={expanded}
+            aria-controls={expanded ? detailId : undefined} onClick={() => setExpanded(!expanded)}>
+            {expanded ? "세부 정보 닫기" : "세부 정보"}
+          </button>
+        </td>
+      </tr>
+      {expanded && <tr role="row" className="agent-detail-row">
+        <td role="cell" id={detailId} colSpan={7}>
+          <p className="text-xs break-all text-slate-600">실행 ID · {heartbeat.run_id}</p>
+          <p className="mt-1 text-xs text-slate-600">마지막 수신 · {received.toLocaleString("ko-KR")}</p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+            {onSelectRun && <button type="button" className="workspace-text-action"
+              onClick={() => onSelectRun(heartbeat.run_id)}>이 실행 조회</button>}
+            {onSelectMetrics && <button type="button" className="workspace-text-action"
+              aria-pressed={selected} onClick={() => onSelectMetrics(agent)}>자원 추이 보기</button>}
           </div>
-        ))}
-      </dl>
-
-      <footer className="mt-6 flex flex-wrap gap-x-5 gap-y-2 border-t border-slate-100 pt-4 text-xs leading-6 text-slate-500">
-        <span>
-          마지막 수신:{" "}
-          {new Date(agent.last_received_at_ms).toLocaleString("ko-KR")}
-        </span>
-
-        <span>
-          수신 후 경과: {Math.floor(ageMs / 1000).toLocaleString("ko-KR")}초
-        </span>
-      </footer>
-
-      {stale && (
-        <p className="mt-3 text-xs leading-6 text-amber-800">
-          조회된 하트비트가 오래됐습니다. 새로고침으로 현재 보고 상태를 확인해
-          주세요. 표시된 자원과 큐 사용량은 마지막 보고값입니다.
-        </p>
-      )}
-    </article>
+          <dl className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-3">
+            {metrics.map(({ title, value, details }) => (
+              <div key={title} className="min-w-0">
+                <dt className="text-xs text-slate-600">{title}</dt>
+                <dd className="font-semibold break-words tabular-nums">{value}</dd>
+                {details && <dd className="text-xs text-slate-600">{details}</dd>}
+              </div>
+            ))}
+          </dl>
+          {stale && <p className="mt-3 text-xs text-amber-800">자원과 큐 사용량은 마지막 보고값입니다.</p>}
+          <AgentControlDetails heartbeat={heartbeat} />
+        </td>
+      </tr>}
+    </>
   );
 }
 
@@ -279,33 +258,19 @@ export default function AgentStatusPanel({
   return (
     <section
       aria-labelledby="agents-heading"
-      className="mt-12 border-t border-slate-200 pt-8"
+      className="mb-8 border-t border-slate-200 pt-5"
     >
-      <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2
-            id="agents-heading"
-            className="text-xl font-bold tracking-tight text-slate-900"
-          >
-            에이전트 상태
-            {data !== null && (
-              <span className="ml-2 text-base font-medium text-slate-500">
-                {data.agents.length}개
-              </span>
-            )}
-          </h2>
-
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            수신된 하트비트를 기준으로 실제 파싱 위치와 자원 사용량을
-            표시합니다.
-          </p>
+      <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-baseline gap-2">
+          <h2 id="agents-heading" className="text-lg font-semibold tracking-tight">에이전트 상태</h2>
+          {data !== null && <span className="text-sm text-slate-600">{data.agents.length}개</span>}
         </div>
 
         <button
           type="button"
           disabled={isFetching}
           onClick={refresh}
-          className="self-start rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-wait disabled:opacity-50 sm:self-auto"
+          className="workspace-action disabled:cursor-wait disabled:opacity-50"
         >
           {isFetching ? "조회 중…" : "목록 새로고침"}
         </button>
@@ -352,20 +317,28 @@ export default function AgentStatusPanel({
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {orderedAgents.map((agent) => (
-                <AgentCard
-                  key={agentKey(agent)}
-                  isDemoAgent={agent.heartbeat.run_id === demoRunId}
-                  selected={agentKey(agent) === selectedKey}
-                  onSelectMetrics={onSelectMetrics}
-                  agent={agent}
-                  staleAfterMs={data.stale_after_ms}
-                  elapsedMs={elapsedMs}
-                  onSelectRun={onSelectRun}
-                />
-              ))}
-            </div>
+            <table className="agent-table" role="table" aria-labelledby="agents-heading">
+              <thead role="rowgroup">
+                <tr role="row">
+                  {["소스 ID", "연결 상태", "파싱 위치", "프로세스 CPU", "호스트 메모리", "최근 수신", "작업"].map((label) =>
+                    <th key={label} role="columnheader" scope="col">{label}</th>)}
+                </tr>
+              </thead>
+              <tbody role="rowgroup">
+                {orderedAgents.map((agent) => (
+                  <AgentRow
+                    key={agentKey(agent)}
+                    isDemoAgent={agent.heartbeat.run_id === demoRunId}
+                    selected={agentKey(agent) === selectedKey}
+                    onSelectMetrics={onSelectMetrics}
+                    agent={agent}
+                    staleAfterMs={data.stale_after_ms}
+                    elapsedMs={elapsedMs}
+                    onSelectRun={onSelectRun}
+                  />
+                ))}
+              </tbody>
+            </table>
           )}
 
           <p className="mt-4 text-xs leading-6 text-slate-500">

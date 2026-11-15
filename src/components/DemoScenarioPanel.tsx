@@ -8,36 +8,30 @@ const scenarios: ReadonlyArray<{
   id: DemoScenario;
   title: string;
   description: string;
-  colors: string;
 }> = [
   {
     id: "CENTRAL",
     title: "중앙에서 파싱",
-    colors: "border-blue-300 bg-blue-50 text-blue-950 enabled:hover:border-blue-400 enabled:hover:bg-blue-100 focus-visible:ring-blue-500 disabled:border-blue-200 disabled:bg-blue-50/60 disabled:text-blue-800",
     description: "혼합 로그 800건을 중앙에서 파싱합니다.",
   },
   {
     id: "AGENT",
     title: "에이전트에서 파싱",
-    colors: "border-emerald-300 bg-emerald-50 text-emerald-950 enabled:hover:border-emerald-400 enabled:hover:bg-emerald-100 focus-visible:ring-emerald-500 disabled:border-emerald-200 disabled:bg-emerald-50/60 disabled:text-emerald-800",
     description: "같은 혼합 로그 800건을 에이전트에서 파싱합니다.",
   },
   {
     id: "SWITCH",
     title: "수집 중 파싱 위치 전환",
-    colors: "border-violet-300 bg-violet-50 text-violet-950 enabled:hover:border-violet-400 enabled:hover:bg-violet-100 focus-visible:ring-violet-500 disabled:border-violet-200 disabled:bg-violet-50/60 disabled:text-violet-800",
     description: "처음 800건은 중앙, 다음 800건은 에이전트에서 파싱합니다.",
   },
   {
     id: "AUTO_SWITCH",
     title: "부하 기반 자동 전환",
-    colors: "border-teal-300 bg-teal-50 text-teal-950 enabled:hover:border-teal-400 enabled:hover:bg-teal-100 focus-visible:ring-teal-500 disabled:border-teal-200 disabled:bg-teal-50/60 disabled:text-teal-800",
     description: "모의 호스트 CPU 부하에 따라 중앙 → 에이전트 → 중앙 순으로 파싱 위치가 바뀝니다.",
   },
   {
     id: "STRESS",
     title: "부하 테스트",
-    colors: "border-amber-300 bg-amber-50 text-amber-950 enabled:hover:border-amber-400 enabled:hover:bg-amber-100 focus-visible:ring-amber-500 disabled:border-amber-200 disabled:bg-amber-50/60 disabled:text-amber-800",
     description: "최대 10초간 혼합 로그 5,000건으로 대기열이 쌓이고 줄어드는 과정을 봅니다.",
   },
 ];
@@ -67,7 +61,10 @@ export default function DemoScenarioPanel({
   }, [onRunChange, runId]);
 
   if (data?.enabled === false) {
-    return <p className="text-sm text-slate-600">중앙 서버에서 시연 기능을 켜면 이 페이지에서 실행할 수 있습니다.</p>;
+    return <section className="console-panel mb-8" aria-labelledby="demo-title">
+      <h2 id="demo-title" className="text-lg font-semibold">동작 시연</h2>
+      <p className="mt-2 text-sm text-slate-600">중앙 서버에서 시연 기능을 켜면 이 페이지에서 실행할 수 있습니다.</p>
+    </section>;
   }
 
   async function launch(scenario: DemoScenario) {
@@ -90,51 +87,44 @@ export default function DemoScenarioPanel({
   return (
     <section
       aria-labelledby="demo-title"
-      className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+      className="console-panel mb-8"
     >
-      <h2 id="demo-title" className="text-xl font-semibold">
+      <h2 id="demo-title" className="text-lg font-semibold">
         동작 시연
       </h2>
 
-      <div className={"mt-4 grid gap-4 sm:grid-cols-2 " + (data?.autoEnabled ? "xl:grid-cols-5" : "xl:grid-cols-4")}>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
         {scenarios.filter((scenario) => scenario.id !== "AUTO_SWITCH" || data?.autoEnabled).map((scenario) => (
           <button
             key={scenario.id}
             type="button"
             disabled={data?.enabled !== true || starting || running}
             onClick={() => void launch(scenario.id)}
-            className={`rounded-xl border-2 p-4 text-left transition-colors
-              focus-visible:ring-2 focus-visible:ring-offset-2
-              enabled:cursor-pointer disabled:cursor-not-allowed ${scenario.colors}`}
+            data-current={run?.scenario === scenario.id || undefined}
+            className="demo-scenario"
           >
             <span className="block font-semibold">{scenario.title}</span>
-            <span className="mt-2 block text-sm">
+            <span className="mt-1 block text-sm font-normal text-slate-600">
               {scenario.description}
             </span>
           </button>
         ))}
       </div>
 
-      <p className="mt-4 text-sm" role="status">
-        {starting ? "시연을 시작하는 중입니다." : run?.message}
-      </p>
-
-      <DemoFlow run={run} />
-      {run && (
-        <button
-          type="button"
-          onClick={() => onSelectRun(run.run_id)}
-          className="mt-2 text-sm font-medium text-blue-700 underline"
-        >
-          이 시연의 로그 보기
-        </button>
-      )}
-
       {(startError ?? error) && (
         <p className="mt-3 text-sm text-red-700" role="alert">
           {startError ?? error}
         </p>
       )}
+      <DemoFlow run={run} />
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-slate-700" role="status">
+          {starting ? "시연을 시작하는 중입니다." : run?.message}
+        </p>
+        {run && <button type="button" onClick={() => onSelectRun(run.run_id)} className="workspace-action">
+          이 시연의 로그 보기
+        </button>}
+      </div>
     </section>
   );
 }
