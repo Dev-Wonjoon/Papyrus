@@ -48,15 +48,15 @@ function formatDuration(value: number | null): string {
 
 function MetricCard({ title, value, description }: MetricCardProps) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4">
       <dt className="text-sm font-medium text-slate-600">{title}</dt>
 
-      <dd className="mt-4">
-        <span className="block text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">
+      <dd className="mt-2">
+        <span className="block text-xl font-semibold tracking-tight text-slate-900 tabular-nums">
           {value}
         </span>
 
-        <span className="mt-3 block text-sm leading-6 text-slate-500">
+        <span className="mt-1 block text-xs leading-5 text-slate-600">
           {description}
         </span>
       </dd>
@@ -139,26 +139,18 @@ export default function SystemStatusPage({ onSelectRun, demoRunId }: {
 
   return (
     <>
-      <header id="system-status" className="mb-6 flex scroll-mt-4 flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight">시스템 상태</h2>
-        </div>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="system-status" className="text-lg font-semibold tracking-tight">중앙 서버</h2>
 
         <button
           type="button"
           disabled={isFetching || traffic.isFetching || overview.isFetching}
           onClick={() => { refresh(); traffic.refresh(); overview.refresh(); }}
-          className="inline-flex shrink-0 items-center justify-center self-start rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-wait disabled:opacity-50 sm:self-auto"
+          className="workspace-action disabled:cursor-wait disabled:opacity-50"
         >
           {isFetching || traffic.isFetching || overview.isFetching ? "조회 중…" : "새로고침"}
         </button>
       </header>
-
-      <div id="operational-charts" className="scroll-mt-4">
-        <TrafficCharts traffic={traffic.data} error={traffic.error} loading={traffic.isLoading}
-          samples={selectedSamples ?? centralHistory} target={selectedSamples && selected ? selected.name : "중앙 서버"}
-          canReset={Boolean(selectedSamples)} onReset={() => setSelected(null)} />
-      </div>
 
       {isLoading && (
         <div
@@ -172,7 +164,7 @@ export default function SystemStatusPage({ onSelectRun, demoRunId }: {
       {error !== null && (
         <div
           role="alert"
-          className="mb-6 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm leading-6 text-red-800"
+          className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm leading-6 text-red-800"
         >
           <p className="font-semibold">시스템 상태 조회 실패</p>
           <p className="mt-1">{error}</p>
@@ -186,9 +178,8 @@ export default function SystemStatusPage({ onSelectRun, demoRunId }: {
       )}
 
       {data !== null && (
-        <section aria-label="중앙 서버 자원 현황">
-          <h3 className="mb-4 text-xl font-bold">중앙 서버</h3>
-          <div className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-3 text-sm text-slate-600">
+        <section aria-labelledby="system-status">
+          <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
             <StatusBadge status={freshness} />
 
             <span>
@@ -212,7 +203,7 @@ export default function SystemStatusPage({ onSelectRun, demoRunId }: {
             </p>
           )}
 
-          <dl className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-5">
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <MetricCard
               title="중앙 JVM CPU"
               value={formatPercent(data.process_cpu_load)}
@@ -258,6 +249,12 @@ export default function SystemStatusPage({ onSelectRun, demoRunId }: {
           setSelected({ key: agentKey(agent), name: "에이전트 " + agent.heartbeat.source_id });
           document.getElementById("operational-charts")?.scrollIntoView();
         }} />
+
+      <div id="operational-charts" className="scroll-mt-4">
+        <TrafficCharts traffic={traffic.data} error={traffic.error} loading={traffic.isLoading}
+          samples={selectedSamples ?? centralHistory} target={selectedSamples && selected ? selected.name : "중앙 서버"}
+          canReset={Boolean(selectedSamples)} onReset={() => setSelected(null)} />
+      </div>
     </>
   );
 }

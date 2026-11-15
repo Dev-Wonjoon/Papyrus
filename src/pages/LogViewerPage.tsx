@@ -7,8 +7,8 @@ const CHUNK_SIZE = 50;
 const CACHE_LIMIT = 5;
 const ROW_HEIGHT = 64;
 const OVERSCAN = 6;
-const fieldClass = "mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900";
-const buttonClass = "rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-100 disabled:opacity-50";
+const fieldClass = "mt-1 block h-9 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 focus-visible:outline-2 focus-visible:outline-indigo-600";
+const buttonClass = "workspace-action disabled:opacity-50";
 
 const filters = [
   { name: "source_id", label: "소스 ID" },
@@ -29,8 +29,7 @@ export default function LogViewerPage({ search, onSearch }: {
 
   return (
     <>
-      <h1 className="text-3xl font-bold tracking-tight">로그 뷰어</h1>
-      <form className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" onSubmit={(event) => {
+      <form aria-label="로그 검색" className="log-filters rounded-lg border border-slate-200 bg-white p-4" onSubmit={(event) => {
         event.preventDefault();
         const fields = new FormData(event.currentTarget);
         const next = new URLSearchParams();
@@ -50,7 +49,7 @@ export default function LogViewerPage({ search, onSearch }: {
       }}>
         <RunIdField initialValue={runId} />
         {filters.map((filter) => (
-          <label key={filter.name} className="text-sm font-medium text-slate-700">
+          <label key={filter.name} className="min-w-0 text-sm font-medium text-slate-700">
             {filter.label}
             {"options" in filter ? (
               <select name={filter.name} className={fieldClass} defaultValue={params.get(filter.name) ?? ""}>
@@ -64,7 +63,7 @@ export default function LogViewerPage({ search, onSearch }: {
             )}
           </label>
         ))}
-        <button type="submit" className={buttonClass + " justify-self-start"}>검색</button>
+        <button type="submit" className="h-9 justify-self-start rounded-md bg-indigo-700 px-4 text-sm font-semibold text-white hover:bg-indigo-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">검색</button>
       </form>
       <LogResults runId={runId} refresh={refresh}
         sourceId={params.get("source_id")?.trim() ?? ""}
@@ -102,7 +101,7 @@ function RunIdField({ initialValue }: { initialValue: string }) {
   }, [open, value, after]);
 
   return (
-    <div className="relative" onBlur={(event) => {
+    <div className="relative min-w-0" onBlur={(event) => {
       if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
     }} onKeyDown={(event) => {
       if (event.key === "Escape" && open) {
@@ -336,50 +335,54 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
         <p role="alert" className="text-sm text-red-700">{error.message}</p>
         {!error.expired && <button type="button" className={buttonClass} onClick={() => setError(null)}>다시 시도</button>}
       </div>}
-      <div ref={list} aria-label="로그 목록" tabIndex={0}
-        className="h-[min(60vh,42rem)] min-h-48 overflow-auto rounded-xl border border-slate-200 bg-white"
-        onScroll={(event) => setViewport({
-          top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight,
-        })}>
-        {search.total === 0 && <p className="p-4 text-sm text-slate-600">검색 결과가 없습니다.</p>}
-        <div style={{ height: search.discovered * ROW_HEIGHT, position: "relative" }}>
-          {Array.from({ length: Math.max(0, end - start) }, (_, offset) => {
-            const index = start + offset;
-            const item = search.chunks.get(Math.floor(index / CHUNK_SIZE))?.[index % CHUNK_SIZE];
-            return (
-              <div key={index} style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
-                className="absolute inset-x-0 border-b border-slate-100">
-                {item ? <button type="button" onClick={() => setDetail({ document_id: item.document_id, run_id: item.run_id })}
-                    className="flex size-full min-w-0 flex-col justify-center gap-1 px-4 text-left hover:bg-indigo-50"
-                    aria-pressed={detail?.document_id === item.document_id}>
-                    <span className="flex w-full items-center gap-2 text-xs text-slate-600">
-                      <span className="font-semibold tabular-nums">{index + 1}.</span>
-                      {!runId && <span className="truncate" title={item.run_id}>{item.run_id}</span>}
-                      <span className="truncate">{item.source_id}</span>
-                      <span className="shrink-0">{item.mode === "CENTRAL" ? "중앙 파싱" : "에이전트 파싱"}</span>
-                      <span className={item.parse_status === "FAILED" ? "shrink-0 text-red-700" : "shrink-0 text-emerald-700"}>
-                        {item.parse_status === "FAILED" ? "실패" : "성공"}
+      <div className="log-results-body" data-detail={detail !== null || undefined}>
+        <div ref={list} aria-label="로그 목록" tabIndex={0}
+          className="h-[min(60vh,42rem)] min-h-48 overflow-auto rounded-xl border border-slate-200 bg-white"
+          onScroll={(event) => setViewport({
+            top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight,
+          })}>
+          {search.total === 0 && <p className="p-4 text-sm text-slate-600">검색 결과가 없습니다.</p>}
+          <div style={{ height: search.discovered * ROW_HEIGHT, position: "relative" }}>
+            {Array.from({ length: Math.max(0, end - start) }, (_, offset) => {
+              const index = start + offset;
+              const item = search.chunks.get(Math.floor(index / CHUNK_SIZE))?.[index % CHUNK_SIZE];
+              return (
+                <div key={index} style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
+                  className="absolute inset-x-0 border-b border-slate-100">
+                  {item ? <button type="button" onClick={() => setDetail({ document_id: item.document_id, run_id: item.run_id })}
+                      className="flex size-full min-w-0 flex-col justify-center gap-1 px-4 text-left hover:bg-indigo-50 aria-pressed:bg-indigo-50"
+                      aria-pressed={detail?.document_id === item.document_id}>
+                      <span className="flex w-full items-center gap-2 text-xs text-slate-600">
+                        <span className="font-semibold tabular-nums">{index + 1}.</span>
+                        {!runId && <span className="truncate" title={item.run_id}>{item.run_id}</span>}
+                        <span className="truncate">{item.source_id}</span>
+                        <span className="shrink-0">{item.mode === "CENTRAL" ? "중앙 파싱" : "에이전트 파싱"}</span>
+                        <span className={item.parse_status === "FAILED" ? "shrink-0 text-red-700" : "shrink-0 text-emerald-700"}>
+                          {item.parse_status === "FAILED" ? "실패" : "성공"}
+                        </span>
                       </span>
-                    </span>
-                    <span className="w-full truncate font-mono text-sm">{item.raw_preview}</span>
-                  </button> : <div className="px-4 py-4 text-sm text-slate-500">로그 불러오는 중</div>}
-              </div>
-            );
-          })}
+                      <span className="w-full truncate font-mono text-sm">{item.raw_preview}</span>
+                    </button> : <div className="px-4 py-4 text-sm text-slate-500">로그 불러오는 중</div>}
+                </div>
+              );
+            })}
+          </div>
+          {hasMore && search.total !== null && (
+            <button type="button" className="m-3 rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+              disabled={loading || error !== null}
+              onClick={() => {
+                const next = search.starts.length - 1;
+                void load(next, search.starts[next]);
+              }}>
+              다음 로그 불러오기
+            </button>
+          )}
         </div>
-        {hasMore && search.total !== null && (
-          <button type="button" className="m-3 rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
-            disabled={loading || error !== null}
-            onClick={() => {
-              const next = search.starts.length - 1;
-              void load(next, search.starts[next]);
-            }}>
-            다음 로그 불러오기
-          </button>
-        )}
+        {detail && <div className="min-w-0 [&>section]:mt-0">
+          <LogDetailPanel key={detail.document_id} runId={detail.run_id} documentId={detail.document_id}
+            onClose={() => setDetail(null)} />
+        </div>}
       </div>
-      {detail && <LogDetailPanel key={detail.document_id} runId={detail.run_id} documentId={detail.document_id}
-        onClose={() => setDetail(null)} />}
     </section>
   );
 }
