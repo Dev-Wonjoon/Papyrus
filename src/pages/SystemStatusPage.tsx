@@ -31,10 +31,10 @@ const statusStyles: Record<MetricsStatus, string> = {
   STALE: "bg-amber-50 text-amber-800 ring-amber-200",
 };
 
-function formatMemory(value: number | null): string {
+function formatMemory(value: number | null, unit: "MiB" | "GiB" = "MiB"): string {
   return value === null
     ? "측정 불가"
-    : `${(value / 1024 / 1024).toFixed(1)} MiB`;
+    : `${(value / 1024 ** (unit === "GiB" ? 3 : 2)).toFixed(1)} ${unit}`;
 }
 
 function formatDuration(value: number | null): string {
@@ -243,7 +243,9 @@ export default function SystemStatusPage({ onSelectRun, demoRunId, overviewMode,
               <MetricCard
                 title="호스트 메모리"
                 value={formatPercent(fraction(data.host_memory_used_bytes, data.host_memory_total_bytes))}
-                description={`${formatMemory(data.host_memory_used_bytes ?? null)} / ${formatMemory(data.host_memory_total_bytes ?? null)}`}
+                description={data.host_memory_used_bytes != null && data.host_memory_total_bytes != null
+                  ? `사용 ${formatMemory(data.host_memory_used_bytes, "GiB")} / 전체 ${formatMemory(data.host_memory_total_bytes, "GiB")}`
+                  : undefined}
               />
 
               <MetricCard
