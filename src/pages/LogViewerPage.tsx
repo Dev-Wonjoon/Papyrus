@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { closeLogSnapshot, fetchLogChunk, fetchRunIds, LogSnapshotExpired } from "../api/dashboard";
 import type { LogCursor, LogItem, LogQuery } from "../api/dashboard";
 import LogDetailPanel from "../components/LogDetailPanel";
@@ -183,6 +183,9 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
   const [detail, setDetail] = useState<Pick<LogItem, "run_id" | "document_id"> | null>(null);
   const [error, setError] = useState<{ message: string; expired: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [copyNotice, setCopyNotice] = useState("");
+  const copyNoticeTimer = useRef<number>(undefined);
+  const copyMenuPrefix = useId();
   const list = useRef<HTMLDivElement>(null);
   const detailOrigin = useRef<{ row: HTMLButtonElement; listTop: number; pageTop: number } | null>(null);
   const controller = useRef<AbortController | null>(null);
@@ -206,6 +209,19 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
     refresh.current = onRefresh;
     return () => { refresh.current = null; };
   }, [refresh, onRefresh]);
+  useEffect(() => () => window.clearTimeout(copyNoticeTimer.current), []);
+
+  async function copyLogId(label: string, value: string) {
+    let message = `${label}를 복사했습니다.`;
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      message = `${label}를 복사하지 못했습니다.`;
+    }
+    window.clearTimeout(copyNoticeTimer.current);
+    setCopyNotice(message);
+    copyNoticeTimer.current = window.setTimeout(() => setCopyNotice(""), 2500);
+  }
 
   const followLive = useRef(false);
   followLive.current = viewport.top === 0 && detail === null && !loading && error === null;
@@ -214,7 +230,7 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
     const stream = new EventSource("/api/logs/updates");
     let connected = false;
     function notify() {
-      if (followLive.current) onRefresh();
+      if (followLive.current && !list.current?.querySelector(":popover-open")) onRefresh();
       else setNewLogs(true);
     }
     stream.onopen = () => {
@@ -301,7 +317,7 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
     && (search.total === null || search.discovered < search.total);
 
   useEffect(() => {
-    if (newLogs && followLive.current && search.total !== null) {
+    if (newLogs && followLive.current && search.total !== null && !list.current?.querySelector(":popover-open")) {
       onRefresh();
       return;
     }
@@ -341,6 +357,9 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
 
   return (
     <section className="mt-4" aria-label="로그 검색 결과">
+      <div role="status" className="pointer-events-none fixed right-4 bottom-4 z-30">
+        {copyNotice && <p className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white shadow-lg">{copyNotice}</p>}
+      </div>
       <header className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-slate-700" role="status">
           {search.total === null ? (error ? "검색 실패" : "검색 중")
@@ -374,10 +393,12 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
             {Array.from({ length: Math.max(0, end - start) }, (_, offset) => {
               const index = start + offset;
               const item = search.chunks.get(Math.floor(index / CHUNK_SIZE))?.[index % CHUNK_SIZE];
+              const copyMenuId = `${copyMenuPrefix}-${index}`;
               return (
                 <div key={index} style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
-                  className="absolute inset-x-0 border-b border-slate-100">
-                  {item ? <button type="button" onClick={(event) => {
+                  className="absolute inset-x-0 flex items-center border-b border-slate-100">
+                  {item ? <>
+                    <button type="button" onClick={(event) => {
                         detailOrigin.current = {
                           row: event.currentTarget,
                           listTop: list.current?.scrollTop ?? 0,
@@ -385,7 +406,7 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
                         };
                         setDetail({ document_id: item.document_id, run_id: item.run_id });
                       }}
-                      className="log-row"
+                      className="log-row flex-1"
                       aria-pressed={detail?.document_id === item.document_id && detail?.run_id === item.run_id}>
                       <span className="log-row-meta" data-all-runs={!runId || undefined}>
                         <span className="text-slate-500 tabular-nums">{index + 1}</span>
@@ -397,7 +418,39 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
                         </span>
                       </span>
                       <span className="w-full truncate font-mono text-sm">{item.raw_preview}</span>
-                    </button> : <div className="px-4 py-4 text-sm text-slate-500">로그 불러오는 중</div>}
+                    </button>
+                    <button type="button" popoverTarget={copyMenuId} aria-label={`${index + 1}번 로그 ID 복사`}
+                      title="로그 ID 복사"
+                      className="mr-1 grid size-11 shrink-0 place-items-center rounded-md text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600">
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
+                        className="size-4">
+                        <rect x="8" y="8" width="12" height="12" rx="2" />
+                        <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+                      </svg>
+                    </button>
+                    <div id={copyMenuId} popover="auto" role="group" aria-label="로그 ID 복사"
+                      className={"m-auto rounded-md border border-slate-200 bg-white p-1 text-sm text-slate-800 shadow-lg "
+                        + "supports-[position-area:bottom]:inset-auto supports-[position-area:bottom]:m-0 "
+                        + "supports-[position-area:bottom]:[position-area:bottom_span-left] "
+                        + "supports-[position-area:bottom]:[position-try-fallbacks:flip-block]"}
+                      onToggle={(event) => {
+                        if (event.newState === "closed" && newLogs && followLive.current
+                            && !list.current?.querySelector(":popover-open")) {
+                          onRefresh();
+                        }
+                      }}>
+                      {[
+                        ["실행 ID", item.run_id],
+                        ["소스 ID", item.source_id],
+                      ].map(([label, value]) => (
+                        <button key={label} type="button" popoverTarget={copyMenuId} popoverTargetAction="hide"
+                          className="block min-h-11 w-full rounded px-3 text-left whitespace-nowrap hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-indigo-600"
+                          onClick={() => void copyLogId(label, value)}>
+                          {label} 복사
+                        </button>
+                      ))}
+                    </div>
+                  </> : <div className="px-4 py-4 text-sm text-slate-500">로그 불러오는 중</div>}
                 </div>
               );
             })}
