@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { closeLogSnapshot, fetchLogChunk, fetchRunIds, LogSnapshotExpired } from "../api/dashboard";
 import type { LogCursor, LogItem, LogQuery } from "../api/dashboard";
 import LogDetailPanel from "../components/LogDetailPanel";
@@ -172,6 +172,27 @@ function emptySearch(): SearchWindow {
   return { starts: [null], chunks: new Map(), discovered: 0, total: null };
 }
 
+function LogIdCopy({ label, value, onCopy }: {
+  label: string;
+  value: string;
+  onCopy: (label: string, value: string) => Promise<void>;
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-0.5">
+      <span className="truncate font-mono" title={value}>{value}</span>
+      <button type="button" aria-label={`${label} 복사`} title={`${label} 복사`}
+        className="pointer-events-auto grid size-7 shrink-0 place-items-center rounded text-slate-600 hover:bg-indigo-100 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600"
+        onClick={() => void onCopy(label, value)}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
+          className="size-3.5">
+          <rect x="8" y="8" width="12" height="12" rx="2" />
+          <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+        </svg>
+      </button>
+    </span>
+  );
+}
+
 function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery & {
   runId: string;
   refresh: { current: (() => void) | null };
@@ -185,7 +206,6 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
   const [loading, setLoading] = useState(false);
   const [copyNotice, setCopyNotice] = useState("");
   const copyNoticeTimer = useRef<number>(undefined);
-  const copyMenuPrefix = useId();
   const list = useRef<HTMLDivElement>(null);
   const detailOrigin = useRef<{ row: HTMLButtonElement; listTop: number; pageTop: number } | null>(null);
   const controller = useRef<AbortController | null>(null);
@@ -230,7 +250,7 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
     const stream = new EventSource("/api/logs/updates");
     let connected = false;
     function notify() {
-      if (followLive.current && !list.current?.querySelector(":popover-open")) onRefresh();
+      if (followLive.current) onRefresh();
       else setNewLogs(true);
     }
     stream.onopen = () => {
@@ -317,7 +337,7 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
     && (search.total === null || search.discovered < search.total);
 
   useEffect(() => {
-    if (newLogs && followLive.current && search.total !== null && !list.current?.querySelector(":popover-open")) {
+    if (newLogs && followLive.current && search.total !== null) {
       onRefresh();
       return;
     }
@@ -393,62 +413,32 @@ function LogResults({ runId, sourceId, mode, parseStatus, q, refresh }: LogQuery
             {Array.from({ length: Math.max(0, end - start) }, (_, offset) => {
               const index = start + offset;
               const item = search.chunks.get(Math.floor(index / CHUNK_SIZE))?.[index % CHUNK_SIZE];
-              const copyMenuId = `${copyMenuPrefix}-${index}`;
               return (
                 <div key={index} style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
-                  className="absolute inset-x-0 flex items-center border-b border-slate-100">
+                  className="absolute inset-x-0 border-b border-slate-100">
                   {item ? <>
-                    <button type="button" onClick={(event) => {
+                    <button type="button" className="log-row absolute inset-0"
+                      aria-label={`${index + 1}번 로그 상세 열기`}
+                      aria-pressed={detail?.document_id === item.document_id && detail?.run_id === item.run_id}
+                      onClick={(event) => {
                         detailOrigin.current = {
                           row: event.currentTarget,
                           listTop: list.current?.scrollTop ?? 0,
                           pageTop: window.scrollY,
                         };
                         setDetail({ document_id: item.document_id, run_id: item.run_id });
-                      }}
-                      className="log-row flex-1"
-                      aria-pressed={detail?.document_id === item.document_id && detail?.run_id === item.run_id}>
-                      <span className="log-row-meta" data-all-runs={!runId || undefined}>
+                      }} />
+                    <div className="pointer-events-none relative grid h-full min-w-0 content-center px-3">
+                      <span className="log-row-meta" data-all-runs>
                         <span className="text-slate-500 tabular-nums">{index + 1}</span>
-                        {!runId && <span className="truncate font-mono" title={item.run_id}>{item.run_id}</span>}
-                        <span className="truncate" title={item.source_id}>{item.source_id}</span>
+                        <LogIdCopy label="실행 ID" value={item.run_id} onCopy={copyLogId} />
+                        <LogIdCopy label="소스 ID" value={item.source_id} onCopy={copyLogId} />
                         <span className="shrink-0">{item.mode === "CENTRAL" ? "중앙 파싱" : "에이전트 파싱"}</span>
                         <span className={item.parse_status === "FAILED" ? "shrink-0 text-red-700" : "shrink-0 text-emerald-700"}>
                           {item.parse_status === "FAILED" ? "실패" : "성공"}
                         </span>
                       </span>
-                      <span className="w-full truncate font-mono text-sm">{item.raw_preview}</span>
-                    </button>
-                    <button type="button" popoverTarget={copyMenuId} aria-label={`${index + 1}번 로그 ID 복사`}
-                      title="로그 ID 복사"
-                      className="mr-1 grid size-11 shrink-0 place-items-center rounded-md text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-600">
-                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75"
-                        className="size-4">
-                        <rect x="8" y="8" width="12" height="12" rx="2" />
-                        <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
-                      </svg>
-                    </button>
-                    <div id={copyMenuId} popover="auto" role="group" aria-label="로그 ID 복사"
-                      className={"m-auto rounded-md border border-slate-200 bg-white p-1 text-sm text-slate-800 shadow-lg "
-                        + "supports-[position-area:bottom]:inset-auto supports-[position-area:bottom]:m-0 "
-                        + "supports-[position-area:bottom]:[position-area:bottom_span-left] "
-                        + "supports-[position-area:bottom]:[position-try-fallbacks:flip-block]"}
-                      onToggle={(event) => {
-                        if (event.newState === "closed" && newLogs && followLive.current
-                            && !list.current?.querySelector(":popover-open")) {
-                          onRefresh();
-                        }
-                      }}>
-                      {[
-                        ["실행 ID", item.run_id],
-                        ["소스 ID", item.source_id],
-                      ].map(([label, value]) => (
-                        <button key={label} type="button" popoverTarget={copyMenuId} popoverTargetAction="hide"
-                          className="block min-h-11 w-full rounded px-3 text-left whitespace-nowrap hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-indigo-600"
-                          onClick={() => void copyLogId(label, value)}>
-                          {label} 복사
-                        </button>
-                      ))}
+                      <span className="truncate font-mono text-sm">{item.raw_preview}</span>
                     </div>
                   </> : <div className="px-4 py-4 text-sm text-slate-500">로그 불러오는 중</div>}
                 </div>
