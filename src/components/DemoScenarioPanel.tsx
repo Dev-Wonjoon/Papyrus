@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { fetchDemoStatus, startDemo } from "../api/demo";
-import type { DemoRun, DemoScenario } from "../api/demo";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { deleteDemoRuns, fetchDemoHistory, fetchDemoStatus, previewDemoCleanup, startDemo } from "../api/demo";
+import type { DemoCleanupEntry, DemoRun, DemoRunEntry, DemoScenario } from "../api/demo";
 import { fetchQueueStats } from "../api/dashboard";
 import { usePolling } from "../hooks/usePolling";
 
@@ -117,16 +117,186 @@ export default function DemoScenarioPanel({
         </p>
       )}
       <DemoFlow run={run} />
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-slate-700" role="status">
-          {starting ? "시연을 시작하는 중입니다." : run?.message}
-        </p>
-        {run && <button type="button" onClick={() => onSelectRun(run.run_id)} className="workspace-action">
-          이 시연의 로그 보기
-        </button>}
-      </div>
+      <p className="mt-3 text-sm text-slate-700" role="status">
+        {starting ? "시연을 시작하는 중입니다." : run?.message}
+      </p>
+      {data?.enabled && <DemoRunHistory current={run} onSelectRun={onSelectRun} onDeleted={(ids) => {
+        setStarted((previous) => previous && ids.includes(previous.run_id) ? null : previous);
+        refresh();
+      }} />}
     </section>
   );
+}
+
+const historyStateLabels: Record<DemoRunEntry["state"], string> = {
+  RUNNING: "진행 중",
+  COMPLETED: "완료",
+  FAILED: "실패",
+  DELETING: "삭제 재시도 가능",
+};
+const deleteButtonClass = "workspace-action text-red-700 disabled:cursor-not-allowed disabled:opacity-50";
+
+function scenarioTitle(scenario: DemoScenario) {
+  return scenarios.find(({ id }) => id === scenario)?.title ?? scenario;
+}
+
+type CleanupPreview = { all: boolean; entries: DemoCleanupEntry[] };
+
+function DemoRunHistory({ current, onSelectRun, onDeleted }: {
+  current: DemoRun | null;
+  onSelectRun: (runId: string) => void;
+  onDeleted: (runIds: string[]) => void;
+}) {
+  const history = usePolling(fetchDemoHistory);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState<string[]>([]);
+  const [preview, setPreview] = useState<CleanupPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [failure, setFailure] = useState("");
+  const entries = (history.data ?? []).filter((entry) => !deleted.includes(entry.run_id));
+  const visibleCurrent = current && !deleted.includes(current.run_id) ? current : null;
+  const selected = entries.find((entry) => entry.run_id === selectedId);
+  const activeId = selected?.run_id ?? visibleCurrent?.run_id ?? entries[0]?.run_id;
+  const active = entries.find((entry) => entry.run_id === activeId);
+  const currentIsListed = entries.some((entry) => entry.run_id === visibleCurrent?.run_id);
+  const busy = previewing || deleting;
+
+  async function openPreview(runId?: string) {
+    setPreviewing(true);
+    setFailure("");
+    setNotice("");
+    try {
+      const targets = await previewDemoCleanup(runId);
+      if (targets.length === 0) {
+        setNotice("삭제할 종료된 시연이 없습니다.");
+        history.refresh();
+      } else {
+        setPreview({ all: runId === undefined, entries: targets });
+      }
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : "삭제 대상을 조회하지 못했습니다.");
+      history.refresh();
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function remove() {
+    if (!preview || deleting) return;
+    setDeleting(true);
+    setFailure("");
+    try {
+      const results = await deleteDemoRuns(preview.entries.map(({ run }) => run.run_id));
+      const removed = results.filter((result) => result.deleted).map((result) => result.run_id);
+      const remaining = results.filter((result) => !result.deleted).map((result) => result.run_id);
+      setDeleted((previous) => [...previous, ...removed]);
+      onDeleted(removed);
+      if (removed.length > 0) setNotice(`시연 ${removed.length}개의 데이터를 삭제했습니다.`);
+      if (remaining.length > 0) {
+        setFailure("삭제가 끝나지 않은 실행입니다. 다시 시도할 수 있습니다. " + remaining.join(", "));
+      }
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : "삭제 결과를 확인하지 못했습니다.");
+    } finally {
+      setDeleting(false);
+      setPreview(null);
+      history.refresh();
+    }
+  }
+
+  return <section className="mt-5 space-y-3 border-t border-slate-200 pt-4" aria-labelledby="demo-history">
+    <header className="flex flex-wrap items-center justify-between gap-2">
+      <h3 id="demo-history" className="font-semibold">시연 실행 이력</h3>
+      <button type="button" className={deleteButtonClass}
+        disabled={busy || !entries.some((entry) => entry.state !== "RUNNING")}
+        onClick={() => void openPreview()}>시연 데이터 전체 삭제</button>
+    </header>
+    {activeId ? <div className="flex flex-wrap items-end gap-2">
+      <label className="min-w-0 flex-1 text-sm text-slate-700">
+        시연 실행 선택
+        <select className="mt-1 block w-full rounded-md border border-slate-300 p-2" value={activeId}
+          onChange={(event) => setSelectedId(event.currentTarget.value)}>
+          {visibleCurrent && !currentIsListed && (
+            <option value={visibleCurrent.run_id}>{scenarioTitle(visibleCurrent.scenario)} · 현재 시연</option>
+          )}
+          {entries.map((entry) => (
+            <option key={entry.run_id} value={entry.run_id}>
+              {scenarioTitle(entry.scenario)} · {new Date(entry.started_at_ms).toLocaleString("ko-KR")} · {historyStateLabels[entry.state]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="button" className="workspace-action" disabled={busy || active?.state === "DELETING"}
+        onClick={() => onSelectRun(activeId)}>이 시연의 로그 보기</button>
+      <button type="button" className={deleteButtonClass} disabled={busy || !active || active.state === "RUNNING"}
+        onClick={() => void openPreview(activeId)}>이 시연 데이터 삭제</button>
+    </div> : history.data && <p className="text-sm text-slate-600">등록된 시연 실행이 없습니다.</p>}
+    {history.error && <p role="alert" className="text-sm text-red-700">{history.error}</p>}
+    {previewing && <p role="status" className="text-sm text-slate-600">삭제할 건수를 조회하고 있습니다.</p>}
+    {notice && <p role="status" className="text-sm text-slate-700">{notice}</p>}
+    {failure && <p role="alert" className="text-sm break-words text-red-700">{failure}</p>}
+    {preview && <DemoCleanupDialog preview={preview} deleting={deleting}
+      onCancel={() => setPreview(null)} onDelete={() => void remove()} />}
+  </section>;
+}
+
+function DemoCleanupDialog({ preview, deleting, onCancel, onDelete }: {
+  preview: CleanupPreview;
+  deleting: boolean;
+  onCancel: () => void;
+  onDelete: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [confirmation, setConfirmation] = useState("");
+  const confirmationText = "전체 삭제";
+  const canDelete = !deleting && (!preview.all || confirmation === confirmationText);
+  const queueCount = preview.entries.reduce((total, entry) => total + entry.queue_count, 0);
+  const indexedCount = preview.entries.reduce((total, entry) => total + entry.indexed_count, 0);
+
+  useEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => element?.close();
+  }, []);
+
+  return <dialog ref={dialog} aria-labelledby="demo-cleanup-title"
+    className="m-auto max-h-[85dvh] w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-xl backdrop:bg-slate-950/40"
+    onCancel={(event) => {
+      event.preventDefault();
+      if (!deleting) onCancel();
+    }}>
+    <h3 id="demo-cleanup-title" className="text-lg font-semibold">
+      {preview.all ? "시연 데이터 전체 삭제" : "이 시연 데이터 삭제"}
+    </h3>
+    <p className="mt-2 text-sm text-slate-700">
+      시연 {preview.entries.length.toLocaleString("ko-KR")}개 · 중앙 큐 기록 {queueCount.toLocaleString("ko-KR")}건
+      {" · 검색 문서 "}{indexedCount.toLocaleString("ko-KR")}건
+    </p>
+    <p className="mt-1 text-xs text-slate-500">중앙 큐와 검색 인덱스에 같은 로그가 포함될 수 있습니다.</p>
+    <ul className="mt-3 max-h-44 space-y-2 overflow-y-auto rounded-md border border-slate-200 p-3 text-sm">
+      {preview.entries.map(({ run }) => <li key={run.run_id}>
+        <span className="font-medium">{scenarioTitle(run.scenario)}</span>
+        <span className="block break-all text-xs text-slate-600">{run.run_id}</span>
+      </li>)}
+    </ul>
+    <form className="mt-4 space-y-4" onSubmit={(event) => {
+      event.preventDefault();
+      if (canDelete) onDelete();
+    }}>
+      {preview.all && <label className="block text-sm text-slate-700">
+        계속하려면 ‘{confirmationText}’를 입력하세요.
+        <input className="mt-1 w-full rounded-md border border-slate-300 p-2"
+          value={confirmation} disabled={deleting} onChange={(event) => setConfirmation(event.currentTarget.value)} />
+      </label>}
+      <div className="flex justify-end gap-2">
+        <button type="button" className="workspace-action" disabled={deleting} onClick={onCancel}>취소</button>
+        <button type="submit" className="rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          disabled={!canDelete}>{deleting ? "삭제 중…" : "삭제 확인"}</button>
+      </div>
+    </form>
+  </dialog>;
 }
 
 function DemoFlow({ run }: { run: DemoRun | null }) {

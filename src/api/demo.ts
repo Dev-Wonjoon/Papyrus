@@ -1,4 +1,23 @@
 export type DemoScenario = "CENTRAL" | "AGENT" | "SWITCH" | "STRESS" | "AUTO_SWITCH";
+const DEMO_API = "/api/demo/scenario";
+
+export interface DemoRunEntry {
+  run_id: string;
+  scenario: DemoScenario;
+  started_at_ms: number;
+  state: "RUNNING" | "COMPLETED" | "FAILED" | "DELETING";
+}
+
+export interface DemoCleanupEntry {
+  run: DemoRunEntry;
+  queue_count: number;
+  indexed_count: number;
+}
+
+export interface DemoCleanupResult {
+  run_id: string;
+  deleted: boolean;
+}
 
 export interface DemoRun {
   run_id: string;
@@ -24,7 +43,7 @@ export interface DemoRun {
 }
 
 export async function fetchDemoStatus(signal: AbortSignal) {
-  const response = await fetch("/api/demo/scenario", {
+  const response = await fetch(DEMO_API, {
     signal,
     cache: "no-store",
   });
@@ -41,7 +60,7 @@ export async function fetchDemoStatus(signal: AbortSignal) {
 }
 
 export async function startDemo(scenario: DemoScenario): Promise<DemoRun> {
-  const response = await fetch("/api/demo/scenario", {
+  const response = await fetch(DEMO_API, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scenario }),
@@ -57,5 +76,28 @@ export async function startDemo(scenario: DemoScenario): Promise<DemoRun> {
     throw new Error(`시연 시작 실패 (${response.status})`);
   }
 
+  return response.json();
+}
+
+export async function fetchDemoHistory(signal: AbortSignal): Promise<DemoRunEntry[]> {
+  const response = await fetch(DEMO_API + "/history", { signal, cache: "no-store" });
+  if (!response.ok) throw new Error("시연 실행 이력을 조회하지 못했습니다.");
+  return response.json();
+}
+
+export async function previewDemoCleanup(runId?: string): Promise<DemoCleanupEntry[]> {
+  const query = runId ? "?" + new URLSearchParams({ run_id: runId }) : "";
+  const response = await fetch(DEMO_API + "/cleanup" + query, { cache: "no-store" });
+  if (!response.ok) throw new Error("삭제 대상을 조회하지 못했습니다. 실행 상태를 확인해 주세요.");
+  return response.json();
+}
+
+export async function deleteDemoRuns(runIds: string[]): Promise<DemoCleanupResult[]> {
+  const response = await fetch(DEMO_API + "/cleanup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ run_ids: runIds }),
+  });
+  if (!response.ok) throw new Error("시연 데이터 삭제에 실패했습니다. 실행 이력을 확인해 주세요.");
   return response.json();
 }
