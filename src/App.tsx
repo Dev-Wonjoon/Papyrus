@@ -5,8 +5,8 @@ import LogViewerPage from "./pages/LogViewerPage";
 import SystemStatusPage from "./pages/SystemStatusPage";
 
 const pages = [
-  { path: "/", label: "시연 대시보드" },
   { path: "/status", label: "시스템 상태" },
+  { path: "/", label: "시연 대시보드" },
   { path: "/logs", label: "로그 뷰어" },
 ] as const;
 
@@ -50,7 +50,7 @@ export default function App() {
       <a className="workspace-skip" href="#workspace-content">본문으로 건너뛰기</a>
       <aside className="workspace-sidebar" aria-label="Papyrus 탐색">
         <a href="/" onClick={(event) => follow(event, "/")} className="workspace-brand">
-          <span className="workspace-mark" aria-hidden="true">P</span>
+          <img className="workspace-mark" src="/favicon.ico" width={32} height={32} alt="" aria-hidden="true" />
           Papyrus
         </a>
         <nav aria-label="주 메뉴" className="workspace-nav">
