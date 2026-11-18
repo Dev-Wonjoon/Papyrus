@@ -131,7 +131,7 @@ export default function LogDetailPanel({ runId, documentId, onClose }: Props) {
             <h4 className="text-sm font-semibold">원문</h4>
             {raw !== null && (
               <button type="button" className="workspace-action"
-                onClick={() => downloadText(raw, `seshat-${documentId}.log`, "text/plain;charset=utf-8")}>
+                onClick={() => downloadText(raw, `papyrus-${documentId}.log`, "text/plain;charset=utf-8")}>
                 원문 다운로드
               </button>
             )}
@@ -166,7 +166,7 @@ export default function LogDetailPanel({ runId, documentId, onClose }: Props) {
                     <p className="text-xs text-slate-600">처음 4,096자 표시.</p>
                   )}
                   <button type="button" className="workspace-action"
-                    onClick={() => downloadText(originalJson, `seshat-${documentId}.json`, "application/json;charset=utf-8")}>
+                    onClick={() => downloadText(originalJson, `papyrus-${documentId}.json`, "application/json;charset=utf-8")}>
                     JSON 다운로드
                   </button>
                 </div>

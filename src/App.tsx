@@ -48,10 +48,10 @@ export default function App() {
   return (
     <div className="workspace-shell">
       <a className="workspace-skip" href="#workspace-content">본문으로 건너뛰기</a>
-      <aside className="workspace-sidebar" aria-label="Seshat 탐색">
+      <aside className="workspace-sidebar" aria-label="Papyrus 탐색">
         <a href="/" onClick={(event) => follow(event, "/")} className="workspace-brand">
-          <span className="workspace-mark" aria-hidden="true">S</span>
-          Seshat
+          <span className="workspace-mark" aria-hidden="true">P</span>
+          Papyrus
         </a>
         <nav aria-label="주 메뉴" className="workspace-nav">
           {pages.map((page) => (

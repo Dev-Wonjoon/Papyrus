@@ -1,6 +1,6 @@
-# React + TypeScript + Vite
+# Papyrus
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Papyrus(파피루스)는 Seshat의 로그 탐색 및 관리 UI입니다. React, TypeScript, Vite로 구성되어 있으며 중앙 서버의 API를 통해 로그와 시스템 상태를 조회합니다.
 
 Currently, two official plugins are available:
 
